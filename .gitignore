@@ -1,0 +1,6 @@
+# Course material (slides, study sheet, exercise files) stays local: not mine to publish.
+Research methods/
+*.pdf
+*.pptx
+*.sqlite
+*.db
