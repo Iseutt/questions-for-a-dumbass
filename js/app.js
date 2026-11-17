@@ -6,9 +6,10 @@
   const KEY = "qfd-v1";
   const LADDER = [10, 20, 30, 40];
   const QUICK_TIME = 30, LADDER_TIME = 40, OPEN_PTS = 40;
+  const HOST_TIME = 30; // host mode: every MCQ gets 30 s once the host clicks Start
 
   // ---------- storage ----------
-  let store = { stats: {}, best: {} };
+  let store = { stats: {}, best: {}, host: false };
   try { store = Object.assign(store, JSON.parse(localStorage.getItem(KEY) || "{}")); } catch (e) { /* private mode */ }
   function save() { try { localStorage.setItem(KEY, JSON.stringify(store)); } catch (e) { /* ignore */ } }
   function record(q, ok) {
@@ -122,6 +123,10 @@
         <div><b>${c.questions.length - nMcq}</b><span>open questions</span></div>
         <div><b>${best != null ? best : "–"}</b><span>best show score</span></div>
       </div>
+      <button class="host-toggle" data-host aria-pressed="${!!store.host}">
+        <span class="sw" aria-hidden="true"></span>
+        <span class="ht-text"><b>🎤 Host mode</b><small>A host reads each question out loud, then clicks Start to show the answers and a ${HOST_TIME} s timer.</small></span>
+      </button>
       <section class="modes">
         <button class="mode show" data-show><span class="m-icon">🏆</span><h3>The Show</h3><p>Three rounds: Quick Fire, The Ladder, The Final. About 15 minutes. Chase your best score.</p></button>
         <button class="mode" data-scroll><span class="m-icon">📚</span><h3>Training</h3><p>Pick themes, no timer, explanation after every answer. Use it to cover the whole course.</p></button>
@@ -150,6 +155,7 @@
     refresh();
 
     on("[data-home]", home);
+    on("[data-host]", (el) => { store.host = !store.host; save(); el.setAttribute("aria-pressed", String(store.host)); });
     on("[data-show]", () => startShow(c));
     on("[data-scroll]", () => document.getElementById("training").scrollIntoView({ behavior: "smooth" }));
     on("[data-mistakes]", () => startList(c, "My mistakes", shuffle(mistakes(c))));
@@ -264,9 +270,12 @@
     const R = G.rounds[G.ri], q = R.qs[G.qi], th = G.c.themeMap[q.t];
     const isMcq = q.type === "mcq", lastQ = G.qi === R.qs.length - 1;
     const opts = isMcq ? shuffle(q.o.map((t, i) => ({ t, ok: i === 0 }))) : null;
-    const timed = R.timer && isMcq;
+    const host = !!store.host;
+    const timed = isMcq && !!(host || R.timer);
+    const tSec = host ? HOST_TIME : R.timer;
     const qMax = R.kind === "quick" ? 15 : R.kind === "ladder" ? LADDER[Math.min(G.qi, 3)] : isMcq ? 10 : R.kind === "final" ? OPEN_PTS : 10;
-    let done = false;
+    let done = false, started = !host, onBegin = null;
+    const hid = host ? " hidden" : "";
 
     screen(`
       <div class="bar">
@@ -276,20 +285,35 @@
       </div>
       <div class="progress"><i style="width:${(G.qi / R.qs.length) * 100}%"></i></div>
       ${R.kind === "ladder" ? ladderHTML() : ""}
-      ${timed ? `<div class="timer"><div id="tbar"></div><span id="tnum">${R.timer}</span></div>` : ""}
+      ${timed ? `<div class="timer" data-gated${hid}><div id="tbar"></div><span id="tnum">${tSec}</span></div>` : ""}
       <article class="card q">
         <div class="tags"><span class="tag">${esc(th.session)}</span><span class="tag alt">${esc(th.name)}</span>${isMcq ? "" : '<span class="tag open">Open question</span>'}</div>
         <h2 class="qtext">${fmt(q.q)}</h2>
         ${q.code ? `<pre>${esc(q.code)}</pre>` : ""}
+        ${host ? `<div class="host-gate"><button class="btn big" data-start>Start ▶</button>
+          <p class="hint">Host: read the question out loud, then press Start (or Space / Enter).</p></div>` : ""}
+        <div data-gated${hid}>
         ${isMcq
           ? `<div class="opts">${opts.map((o, i) => `<button class="opt" data-i="${i}"><span class="letter">${"ABCD"[i]}</span><span>${fmt(o.t)}</span></button>`).join("")}</div>`
           : `<textarea id="ans" rows="7" placeholder="Write your answer as you would in the exam. Not saved, not checked by a machine: you grade it yourself on the next step."></textarea>
              <button class="btn" data-reveal>Reveal the model answer</button>`}
+        </div>
         <div id="fb" aria-live="polite"></div>
       </article>`);
 
     const fb = document.getElementById("fb");
     on("[data-quit]", () => (G.log.length ? results() : course(G.c)));
+
+    // Host mode: answers stay hidden until the host clicks Start.
+    function begin() {
+      if (started) return;
+      started = true;
+      const gate = $app.querySelector(".host-gate"); if (gate) gate.remove();
+      $app.querySelectorAll("[data-gated]").forEach((el) => (el.hidden = false));
+      if (onBegin) onBegin();
+    }
+    on("[data-start]", begin);
+    const startKey = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); begin(); } };
 
     function finish(ok, pts, head, entry) {
       done = true; stopTimer();
@@ -326,11 +350,13 @@
       };
       btns.forEach((b) => b.addEventListener("click", () => answer(+b.dataset.i)));
       keyHandler = (e) => {
+        if (!started) return startKey(e);
         if (done) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); nextQ(); } return; }
         const k = e.key.toLowerCase(); const i = "abcd".indexOf(k) >= 0 ? "abcd".indexOf(k) : "1234".indexOf(k);
         if (i >= 0 && i < opts.length) answer(i);
       };
-      if (timed) startTimer(R.timer, () => answer(-1));
+      onBegin = () => { if (timed) startTimer(tSec, () => answer(-1)); };
+      if (started) onBegin();
     } else {
       const maxPts = R.kind === "final" ? OPEN_PTS : 10;
       on("[data-reveal]", (el) => {
@@ -353,7 +379,11 @@
             { frac, missed: q.keys.filter((k, i) => !boxes[i].checked) });
         });
       });
-      keyHandler = (e) => { if (done && e.key === "Enter") { e.preventDefault(); nextQ(); } };
+      onBegin = () => document.getElementById("ans").focus();
+      keyHandler = (e) => {
+        if (!started) return startKey(e);
+        if (done && e.key === "Enter") { e.preventDefault(); nextQ(); }
+      };
     }
   }
 

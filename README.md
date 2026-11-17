@@ -10,6 +10,8 @@ Open `index.html` in a browser, or use the GitHub Pages link of this repo.
 - **Training**: pick themes, no timer, explanation after every answer.
 - **My mistakes**: only the questions you got wrong last time.
 
+**Host mode** (switch on the course page): each question shows alone so a host can read it out loud; clicking **Start** (or Space / Enter) shows the answers and starts a 30 s timer. Open questions show the answer box, no timer.
+
 Progress is saved in the browser (localStorage).
 
 ## Add a course
