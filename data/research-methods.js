@@ -38,6 +38,15 @@ QFD.course({
         { id: "html", name: "HTML" },
         { id: "scraping", name: "Web scraping" },
         { id: "api", name: "APIs" },
+        { id: "apibiz", name: "API types, integration & business" },
+      ],
+    },
+    {
+      id: "mock", short: "Mock exam", name: "Mock exam · 15 MCQs + 1 open question",
+      themes: [
+        { id: "mock-design", name: "Mock: research questions, design, literature" },
+        { id: "mock-data", name: "Mock: databases, SQL, scraping, APIs" },
+        { id: "mock-open", name: "Mock: open question" },
       ],
     },
   ],
