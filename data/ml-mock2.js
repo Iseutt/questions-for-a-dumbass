@@ -33,7 +33,7 @@
     k("ml-dt", "A node contains 7 'Yes' and 3 'No'. What is its Gini impurity?",
       ["0.42", "0.21", "0.58", "0.88"],
       "1 − 0.49 − 0.09 = 0.42. The value 0.88 is the entropy.", "Slide 157"),
-    q("ml-lr", "A linear regression on 200 rows has 12 features: train 0.74, test 0.72. After adding 78 interaction terms: train 0.97, test 0.41. Why?",
+    q("ml-lr", "A linear regression on 200 rows has 12 features: train 0.74, test 0.72. After adding their 12 squares and 66 pairwise interactions: train 0.97, test 0.41. Why?",
       ["The new terms let the model fit noise, adding more variance than the bias they remove",
        "The new terms added bias, because products of two features make the relationship non-linear",
        "The closed-form solution stops minimising the SSR with more than 12 features",
