@@ -54,7 +54,6 @@ QFD.course({
 
 /* Courses not built yet: shown as locked cards on the home screen. */
 [
-  ["machine-learning", "Machine Learning", "🤖"],
   ["data-mining", "Data Mining", "⛏️"],
   ["data-visualization", "Data Visualization", "📊"],
   ["stats-models", "Statistical Models", "📈"],

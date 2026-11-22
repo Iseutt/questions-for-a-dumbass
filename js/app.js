@@ -6,7 +6,9 @@
   const KEY = "qfd-v1";
   const LADDER = [10, 20, 30, 40];
   const QUICK_TIME = 30, LADDER_TIME = 40, OPEN_PTS = 40;
-  const HOST_TIME = 30; // host mode: every MCQ gets 30 s once the host clicks Start
+  const HOST_TIME = 30; // host mode: MCQs get 30 s once the host clicks Start, unless they are long
+  const LONG_TIME = 120; // calculations, mock exams, MCQ finals
+  const LETTERS = "ABCDE";
 
   // ---------- storage ----------
   let store = { stats: {}, best: {}, host: false };
@@ -28,6 +30,13 @@
     return a;
   }
   // Unseen and last-wrong questions come up more often.
+  // "None of the above" never moves from the last position.
+  function options(q) {
+    const all = q.o.map((t, i) => ({ t, ok: i === 0 })), last = (o) => o.t === QFD.NONE;
+    return shuffle(all.filter((o) => !last(o))).concat(all.filter(last));
+  }
+  const figure = (q) => (q.fig ? `<figure class="fig">${q.fig}</figure>` : "");
+  const isMock = (c, q) => (c.mocks || []).includes(q.t);
   function weight(q) { const s = store.stats[q.id]; return !s ? 3 : s.last ? 1 : 4; }
   function pick(pool, n) {
     pool = pool.slice(); const out = [];
@@ -70,7 +79,7 @@
 
   // ---------- home ----------
   function home() {
-    const cards = QFD.courses.map((c) => {
+    const cards = QFD.courses.slice().sort((a, b) => !!a.locked - !!b.locked).map((c) => {
       if (c.locked) {
         return `<div class="course locked"><span class="c-icon">${c.icon}</span><h3>${esc(c.name)}</h3><p>Coming soon</p><span class="lock">🔒</span></div>`;
       }
@@ -96,7 +105,7 @@
   // ---------- course page ----------
   const setup = {};
   function course(c) {
-    const st = setup[c.id] || (setup[c.id] = { themes: new Set(Object.keys(c.themeMap)), type: "both", count: 20 });
+    const st = setup[c.id] || (setup[c.id] = { themes: new Set(Object.keys(c.themeMap).filter((id) => !(c.mocks || []).includes(id))), type: "both", count: 20 });
     const byTheme = (id) => c.questions.filter((q) => q.t === id);
     const nMcq = c.questions.filter((q) => q.type === "mcq").length;
     const miss = mistakes(c).length;
@@ -113,6 +122,12 @@
         }).join("")}</div>
       </div>`).join("");
 
+    const mocks = (c.mocks || []).map((id) => {
+      const qs = byTheme(id), seen = qs.filter((q) => store.stats[q.id]).length;
+      const state = seen === qs.length ? pct(mastery(qs)) + "% right last time" : seen ? seen + " / " + qs.length + " answered" : "Not taken yet";
+      return `<button class="mode" data-mock="${id}"><h3>${esc(c.themeMap[id].name)}</h3><p>${qs.length} questions, 2 min each. ${state}.</p></button>`;
+    }).join("");
+
     const seg = (name, opts, cur) => `<div class="seg" data-seg="${name}">${opts.map(([v, l]) => `<button data-v="${v}" aria-pressed="${String(v) === String(cur)}">${l}</button>`).join("")}</div>`;
 
     screen(`
@@ -120,28 +135,29 @@
       <div class="stats">
         <div><b>${pct(mastery(c.questions))}%</b><span>mastered</span></div>
         <div><b>${nMcq}</b><span>MCQs</span></div>
-        <div><b>${c.questions.length - nMcq}</b><span>open questions</span></div>
+        ${c.mocks ? `<div><b>${c.mocks.length}</b><span>mock exams</span></div>` : `<div><b>${c.questions.length - nMcq}</b><span>open questions</span></div>`}
         <div><b>${best != null ? best : "–"}</b><span>best show score</span></div>
       </div>
       <button class="host-toggle" data-host aria-pressed="${!!store.host}">
         <span class="sw" aria-hidden="true"></span>
-        <span class="ht-text"><b>🎤 Host mode</b><small>A host reads each question out loud, then clicks Start to show the answers and a ${HOST_TIME} s timer.</small></span>
+        <span class="ht-text"><b>🎤 Host mode</b><small>A host reads each question out loud, then clicks Start to show the answers and a ${HOST_TIME} s timer${c.mocks ? " (2 min for calculations and mocks)" : ""}.</small></span>
       </button>
       <section class="modes">
         <button class="mode show" data-show><span class="m-icon">🏆</span><h3>The Show</h3><p>Three rounds: Quick Fire, The Ladder, The Final. About 15 minutes. Chase your best score.</p></button>
         <button class="mode" data-scroll><span class="m-icon">📚</span><h3>Training</h3><p>Pick themes, no timer, explanation after every answer. Use it to cover the whole course.</p></button>
         <button class="mode" data-mistakes ${miss ? "" : "disabled"}><span class="m-icon">🔁</span><h3>My mistakes</h3><p>${miss ? miss + " question" + (miss > 1 ? "s" : "") + " you got wrong last time." : "Nothing here yet. Go make some mistakes."}</p></button>
       </section>
+      ${mocks ? `<section class="card"><h2>Mock exams</h2><p class="sub">New questions in the style of the practice exam. The Show never uses them, so each mock stays fresh.</p><div class="modes">${mocks}</div></section>` : ""}
       <section class="card" id="training">
         <h2>Training setup</h2>
         ${sessions}
         <div class="opts-row">
-          <div><label>Question type</label>${seg("type", [["both", "MCQ + open"], ["mcq", "MCQ only"], ["open", "Open only"]], st.type)}</div>
+          ${nMcq < c.questions.length ? `<div><label>Question type</label>${seg("type", [["both", "MCQ + open"], ["mcq", "MCQ only"], ["open", "Open only"]], st.type)}</div>` : ""}
           <div><label>How many</label>${seg("count", [[10, "10"], [20, "20"], [40, "40"], [0, "All"]], st.count)}</div>
         </div>
         <div class="start-row"><span id="pool"></span><button class="btn big" data-train>Start training →</button></div>
       </section>
-      <p class="legend">Sources shown after each answer: “S2 p.51” = Session 2 slides, PDF page 51.</p>
+      <p class="legend">${esc(c.legend || "Sources shown after each answer: “S2 p.51” = Session 2 slides, PDF page 51.")}</p>
       <p class="foot"><button class="link danger" data-reset>Reset my progress for this course</button></p>`);
 
     const pool = () => c.questions.filter((q) => st.themes.has(q.t) && (st.type === "both" || q.type === st.type));
@@ -157,6 +173,7 @@
     on("[data-home]", home);
     on("[data-host]", (el) => { store.host = !store.host; save(); el.setAttribute("aria-pressed", String(store.host)); });
     on("[data-show]", () => startShow(c));
+    on("[data-mock]", (el) => startList(c, c.themeMap[el.dataset.mock].name, byTheme(el.dataset.mock), LONG_TIME));
     on("[data-scroll]", () => document.getElementById("training").scrollIntoView({ behavior: "smooth" }));
     on("[data-mistakes]", () => startList(c, "My mistakes", shuffle(mistakes(c))));
     on(".chip", (el) => { const id = el.dataset.theme; st.themes.has(id) ? st.themes.delete(id) : st.themes.add(id); refresh(); });
@@ -181,23 +198,27 @@
   // ---------- game state ----------
   let G = null;
 
-  function startList(c, name, qs) {
+  function startList(c, name, qs, timer = 0) {
     if (!qs.length) return;
-    G = { c, mode: "train", score: 0, max: 0, log: [], ri: 0, qi: -1, level: 0, rounds: [{ kind: "train", name, timer: 0, qs }] };
+    G = { c, mode: "train", score: 0, max: 0, log: [], ri: 0, qi: -1, level: 0, rounds: [{ kind: "train", name, timer, qs }] };
     nextQ();
   }
 
   function startShow(c) {
-    const mcq = c.questions.filter((q) => q.type === "mcq"), open = c.questions.filter((q) => q.type === "open");
+    const playable = c.questions.filter((q) => !isMock(c, q));
+    const mcq = playable.filter((q) => q.type === "mcq"), open = playable.filter((q) => q.type === "open");
+    const last = pick(open.length ? open : mcq.filter((q) => q.hard), 2), lastIds = new Set(last.map((q) => q.id));
     G = {
       c, mode: "show", score: 0, max: 0, log: [], ri: -1, qi: -1, level: 0,
       rounds: [
-        { kind: "quick", name: "Round 1 · Quick Fire", timer: QUICK_TIME, qs: pick(mcq, 9),
-          desc: `9 questions from the whole course, ${QUICK_TIME} seconds each. 10 points per right answer, plus up to 5 for speed.` },
+        { kind: "quick", name: "Round 1 · Quick Fire", timer: QUICK_TIME, qs: pick(mcq.filter((q) => !lastIds.has(q.id)), 9),
+          desc: `9 questions from the whole course, ${QUICK_TIME} seconds each${mcq.some((q) => q.calc) ? " (2 min for calculations)" : ""}. 10 points per right answer, plus up to 5 for speed.` },
         { kind: "ladder", name: "Round 2 · The Ladder", timer: LADDER_TIME, qs: null,
           desc: "You pick a theme, then get 6 questions on it. Right answers in a row are worth 10, 20, 30, then 40 points. One miss sends you back to the bottom." },
-        { kind: "final", name: "Round 3 · The Final", timer: 0, qs: pick(open, 2),
-          desc: `Two open questions, like the exam. Write your answer, then grade yourself against the key points. Up to ${OPEN_PTS} points each.` },
+        { kind: "final", name: "Round 3 · The Final", timer: open.length ? 0 : LONG_TIME, qs: last,
+          desc: open.length
+            ? `Two open questions, like the exam. Write your answer, then grade yourself against the key points. Up to ${OPEN_PTS} points each.`
+            : `Two of the hardest questions in the course, 2 minutes each. ${OPEN_PTS} points each, all or nothing.` },
       ],
     };
     nextRound();
@@ -220,7 +241,7 @@
         <p class="lead">${esc(R.desc)}</p>
         ${R.theme ? `<p class="tags"><span class="tag alt">${esc(R.theme)}</span></p>` : ""}
         <button class="btn big" data-go>Start round →</button>
-        <p class="hint">Keyboard: A–D or 1–4 to answer, Enter for next.</p>
+        <p class="hint">Keyboard: ${G.c.none ? "A–E or 1–5" : "A–D or 1–4"} to answer, Enter for next.</p>
       </section>`);
     on("[data-quit]", () => course(G.c));
     on("[data-go]", nextQ);
@@ -228,8 +249,8 @@
   }
 
   function themePick(R) {
-    const used = new Set(G.rounds[0].qs.map((q) => q.id));
-    const cands = Object.values(G.c.themeMap).map((t) => {
+    const used = new Set(G.rounds[0].qs.concat(G.rounds[2].qs).map((q) => q.id));
+    const cands = Object.values(G.c.themeMap).filter((t) => !(G.c.mocks || []).includes(t.id)).map((t) => {
       const all = G.c.questions.filter((q) => q.t === t.id && q.type === "mcq");
       return { t, all, free: all.filter((q) => !used.has(q.id)) };
     }).filter((x) => x.free.length >= 6);
@@ -269,11 +290,11 @@
   function renderQ() {
     const R = G.rounds[G.ri], q = R.qs[G.qi], th = G.c.themeMap[q.t];
     const isMcq = q.type === "mcq", lastQ = G.qi === R.qs.length - 1;
-    const opts = isMcq ? shuffle(q.o.map((t, i) => ({ t, ok: i === 0 }))) : null;
+    const opts = isMcq ? options(q) : null;
     const host = !!store.host;
     const timed = isMcq && !!(host || R.timer);
-    const tSec = host ? HOST_TIME : R.timer;
-    const qMax = R.kind === "quick" ? 15 : R.kind === "ladder" ? LADDER[Math.min(G.qi, 3)] : isMcq ? 10 : R.kind === "final" ? OPEN_PTS : 10;
+    const tSec = q.calc || R.timer === LONG_TIME ? LONG_TIME : host ? HOST_TIME : R.timer;
+    const qMax = R.kind === "quick" ? 15 : R.kind === "ladder" ? LADDER[Math.min(G.qi, 3)] : R.kind === "final" ? OPEN_PTS : 10;
     let done = false, started = !host, onBegin = null;
     const hid = host ? " hidden" : "";
 
@@ -290,11 +311,12 @@
         <div class="tags"><span class="tag">${esc(th.session)}</span><span class="tag alt">${esc(th.name)}</span>${isMcq ? "" : '<span class="tag open">Open question</span>'}</div>
         <h2 class="qtext">${fmt(q.q)}</h2>
         ${q.code ? `<pre>${esc(q.code)}</pre>` : ""}
+        ${figure(q)}
         ${host ? `<div class="host-gate"><button class="btn big" data-start>Start ▶</button>
           <p class="hint">Host: read the question out loud, then press Start (or Space / Enter).</p></div>` : ""}
         <div data-gated${hid}>
         ${isMcq
-          ? `<div class="opts">${opts.map((o, i) => `<button class="opt" data-i="${i}"><span class="letter">${"ABCD"[i]}</span><span>${fmt(o.t)}</span></button>`).join("")}</div>`
+          ? `<div class="opts">${opts.map((o, i) => `<button class="opt" data-i="${i}"><span class="letter">${LETTERS[i]}</span><span>${fmt(o.t)}</span></button>`).join("")}</div>`
           : `<textarea id="ans" rows="7" placeholder="Write your answer as you would in the exam. Not saved, not checked by a machine: you grade it yourself on the next step."></textarea>
              <button class="btn" data-reveal>Reveal the model answer</button>`}
         </div>
@@ -341,9 +363,9 @@
         if (done) return;
         const ok = i >= 0 && opts[i].ok;
         let pts = 0;
-        if (R.kind === "quick") pts = ok ? 10 + Math.min(5, Math.floor(tLeft / 5)) : 0;
+        if (R.kind === "quick") pts = ok ? 10 + Math.min(5, Math.floor((tLeft * 6) / tSec)) : 0;
         else if (R.kind === "ladder") { pts = ok ? LADDER[Math.min(G.level, 3)] : 0; G.level = ok ? G.level + 1 : 0; }
-        else pts = ok ? 10 : 0;
+        else pts = ok ? qMax : 0;
         btns.forEach((b, j) => { b.disabled = true; if (opts[j].ok) b.classList.add("right"); else if (j === i) b.classList.add("wrong"); });
         const head = i < 0 ? "⏰ Time's up." : ok ? rnd(GOOD) : rnd(BAD);
         finish(ok, pts, head, { chosen: i >= 0 ? opts[i].t : null });
@@ -352,7 +374,8 @@
       keyHandler = (e) => {
         if (!started) return startKey(e);
         if (done) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); nextQ(); } return; }
-        const k = e.key.toLowerCase(); const i = "abcd".indexOf(k) >= 0 ? "abcd".indexOf(k) : "1234".indexOf(k);
+        const k = e.key.toLowerCase(); if (k.length !== 1) return;
+        const i = "abcde".indexOf(k) >= 0 ? "abcde".indexOf(k) : "12345".indexOf(k);
         if (i >= 0 && i < opts.length) answer(i);
       };
       onBegin = () => { if (timed) startTimer(tSec, () => answer(-1)); };
@@ -408,7 +431,7 @@
     if (full && (store.best[c.id] == null || G.score > store.best[c.id])) { store.best[c.id] = G.score; save(); record_ = true; }
 
     const per = {};
-    G.log.forEach((l) => { const t = per[l.q.t] || (per[l.q.t] = { ok: 0, n: 0 }); t.n++; if (l.ok) t.ok++; });
+    G.log.forEach((l) => { const id = l.q.topic || l.q.t, t = per[id] || (per[id] = { ok: 0, n: 0 }); t.n++; if (l.ok) t.ok++; });
     const themeRows = Object.keys(per).map((id) => {
       const t = per[id];
       return `<div class="trow"><span>${esc(c.themeMap[id].name)}</span><div class="meter"><i style="width:${pct(t.ok / t.n)}%"></i></div><b>${t.ok}/${t.n}</b></div>`;
@@ -417,6 +440,7 @@
     const review = wrong.map((l) => `
       <details class="rev"><summary>${fmt(l.q.q)}</summary>
         ${l.q.code ? `<pre>${esc(l.q.code)}</pre>` : ""}
+        ${figure(l.q)}
         ${l.q.type === "mcq"
           ? `<p class="bad-t">Your answer: ${l.chosen ? fmt(l.chosen) : "none (time ran out)"}</p><p class="good-t">Correct answer: ${fmt(l.q.o[0])}</p><p>${fmt(l.q.e)}</p>`
           : `<p class="bad-t">Points you missed:</p><ul>${l.missed.map((k) => `<li>${fmt(k)}</li>`).join("")}</ul><p class="pre">${fmt(l.q.model)}</p>`}
